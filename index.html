@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SafeBite</title>
+</head>
+<body style="font-family: Arial; text-align:center; padding:40px;">
+
+<h1>SafeBite</h1>
+<p>Scan your food safely</p>
+
+<button onclick="startCamera()">Start Camera</button>
+
+<video id="video" width="300" autoplay playsinline></video>
+
+<script>
+async function startCamera() {
+  const video = document.getElementById("video");
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  video.srcObject = stream;
+}
+</script>
+
+</body>
+</html>
