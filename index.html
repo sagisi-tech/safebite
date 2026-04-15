@@ -1,26 +1,620 @@
-<!DOCTYPE html>
+import SwiftUI
+import AVFoundation
+import CoreLocation
+import MapKit
 
-<html>
-<head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SafeBite</title>
-</head>
-<body style="font-family: Arial; text-align:center; padding:40px;">
-
-<h1>SafeBite</h1>
-<p>Scan your food safely</p>
-
-<button onclick="startCamera()">Start Camera</button>
-
-<video id="video" width="300" autoplay playsinline></video>
-
-<script>
-async function startCamera() {
-  const video = document.getElementById("video");
-  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-  video.srcObject = stream;
+func requestCameraAccess() {
+    AVCaptureDevice.requestAccess(for: .video) { granted in
+        if !granted {
+            print("Camera access not granted! Please enable it in Settings.")
+        }
+    }
 }
-</script>
 
-</body>
-</html>
+// MARK: - Barcode Scanner
+
+struct BarcodeScannerView: UIViewControllerRepresentable {
+    class Coordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate {
+        var parent: BarcodeScannerView
+        init(parent: BarcodeScannerView) {
+            self.parent = parent
+        }
+        func metadataOutput(
+            _ output: AVCaptureMetadataOutput,
+            didOutput metadataObjects: [AVMetadataObject],
+            from connection: AVCaptureConnection
+        ) {
+            if let metadataObject = metadataObjects.first,
+               let readableObject = metadataObject as? AVMetadataMachineReadableCodeObject,
+               let stringValue = readableObject.stringValue {
+                AudioServicesPlaySystemSound(SystemSoundID(kSystemSoundID_Vibrate))
+                parent.didFindBarcode(stringValue)
+            }
+        }
+    }
+    
+    var didFindBarcode: (String) -> Void
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+    
+    func makeUIViewController(context: Context) -> UIViewController {
+        let viewController = UIViewController()
+        let captureSession = AVCaptureSession()
+        
+        guard let videoCaptureDevice = AVCaptureDevice.default(for: .video) else {
+            return viewController
+        }
+        
+        do {
+            let videoDeviceInput = try AVCaptureDeviceInput(device: videoCaptureDevice)
+            if captureSession.canAddInput(videoDeviceInput) {
+                captureSession.addInput(videoDeviceInput)
+            }
+        } catch {
+            return viewController
+        }
+        
+        let metadataOutput = AVCaptureMetadataOutput()
+        if captureSession.canAddOutput(metadataOutput) {
+            captureSession.addOutput(metadataOutput)
+            metadataOutput.setMetadataObjectsDelegate(context.coordinator, queue: .main)
+            metadataOutput.metadataObjectTypes = [.ean13, .ean8]
+        }
+        
+        let previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
+        previewLayer.frame = viewController.view.bounds
+        previewLayer.videoGravity = .resizeAspectFill
+        viewController.view.layer.addSublayer(previewLayer)
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            captureSession.startRunning()
+        }
+        
+        return viewController
+    }
+    
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+}
+
+// MARK: - API
+
+func fetchProductInfo(barcode: String, completion: @escaping (String?, String?) -> Void) {
+    guard let url = URL(string: "https://world.openfoodfacts.org/api/v0/product/\(barcode).json") else {
+        completion(nil, nil)
+        return
+    }
+    
+    URLSession.shared.dataTask(with: url) { data, _, _ in
+        guard let data = data else {
+            completion(nil, nil)
+            return
+        }
+        
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let product = json["product"] as? [String: Any] {
+            let name = product["product_name"] as? String ?? "Unknown Product"
+            let ingredients = product["ingredients_text"] as? String ?? "Ingredients not found"
+            completion(name, ingredients)
+        } else {
+            completion(nil, nil)
+        }
+    }.resume()
+}
+
+// MARK: - Nutrition Scanner View
+
+struct NutritionLabelScannerView: View {
+    @State private var scannedResult: String?
+    @State private var productName: String?
+    @State private var ingredientsText: String?
+    @Binding var selectedAllergens: [String]
+    @State private var showAlert = false
+    @State private var foundAllergens: [String] = []
+    
+    var body: some View {
+        VStack {
+            Text("Scan Nutrition Label")
+                .font(.system(size: 25, weight: .bold, design: .rounded))
+                .padding()
+            
+            if let name = productName {
+                Text("Product: \(name)")
+                    .font(.system(size: 22, weight: .medium, design: .rounded))
+                    .padding()
+            } else {
+                Text("No product scanned yet.")
+                    .font(.system(size: 22, design: .rounded))
+                    .padding()
+            }
+            
+            if let ingredients = ingredientsText {
+                ScrollView {
+                    Text("Ingredients: \(ingredients)")
+                        .font(.system(size: 22, design: .rounded))
+                        .padding()
+                        .background(Color.yellow.opacity(0.3))
+                        .cornerRadius(8)
+                }
+                .padding()
+            } else {
+                Text("No ingredients available.")
+                    .font(.system(size: 20, design: .rounded))
+                    .padding()
+            }
+            
+            if let result = scannedResult {
+                Text("Scanned Barcode: \(result)")
+                    .font(.system(size: 19, design: .rounded))
+                    .padding()
+            } else {
+                Text("Waiting for scan...")
+                    .font(.system(size: 19, design: .rounded))
+                    .padding()
+            }
+            
+            BarcodeScannerView { barcode in
+                scannedResult = barcode
+                fetchProductInfo(barcode: barcode) { name, ingredients in
+                    DispatchQueue.main.async {
+                        productName = name
+                        ingredientsText = ingredients
+                        checkForAllergens(in: ingredients ?? "")
+                    }
+                }
+            }
+            .frame(height: 300)
+            .border(Color.gray)
+            
+            if !foundAllergens.isEmpty {
+                Button(action: callEmergencyServices) {
+                    Text("Call 911")
+                        .font(.system(size: 21, weight: .medium, design: .rounded))
+                        .padding()
+                        .background(Color.red)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                }
+                .padding(.bottom, 10)
+                
+                Button(action: locateNearestHospital) {
+                    Text("Locate Nearest Hospital")
+                        .font(.system(size: 21, weight: .medium, design: .rounded))
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                }
+                .padding(.bottom, 20)
+            }
+            
+            Button(action: resetScan) {
+                Text("Scan Again")
+                    .font(.system(size: 21, weight: .medium, design: .rounded))
+                    .padding()
+                    .background(Color.green)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+            }
+            .padding()
+        }
+        .alert(isPresented: $showAlert) {
+            Alert(
+                title: Text(foundAllergens.isEmpty ? "No Allergens Found" : "Allergens Found"),
+                message: Text(foundAllergens.isEmpty
+                              ? "No allergens detected in the ingredients."
+                              : "The following allergens were found: \(foundAllergens.joined(separator: ", "))"),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+    }
+    
+    private func checkForAllergens(in ingredientsText: String) {
+        foundAllergens = selectedAllergens.filter {
+            ingredientsText.localizedCaseInsensitiveContains($0)
+        }
+        showAlert = true
+    }
+    
+    private func resetScan() {
+        scannedResult = nil
+        productName = nil
+        ingredientsText = nil
+        foundAllergens.removeAll()
+    }
+    
+    private func callEmergencyServices() {
+        if let url = URL(string: "tel://911") {
+            UIApplication.shared.open(url)
+        }
+    }
+    
+    private func locateNearestHospital() {
+        if let url = URL(string: "http://maps.apple.com/?q=hospitals") {
+            UIApplication.shared.open(url)
+        }
+    }
+}
+
+// MARK: - Helper Views
+
+struct MultipleSelectionRow: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 16, design: .rounded))
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .foregroundColor(.blue)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { action() }
+    }
+}
+
+struct AllergenSelectionView: View {
+    @Binding var selectedAllergens: [String]
+    var allergens: [String]
+    @State private var navigateToScanner = false
+    
+    var body: some View {
+        VStack {
+            Text("Select Your Allergens")
+                .font(.system(size: 25, weight: .bold, design: .rounded))
+                .padding()
+            
+            List(allergens, id: \.self) { allergen in
+                MultipleSelectionRow(
+                    title: allergen,
+                    isSelected: selectedAllergens.contains(allergen)
+                ) {
+                    if selectedAllergens.contains(allergen) {
+                        selectedAllergens.removeAll { $0 == allergen }
+                    } else {
+                        selectedAllergens.append(allergen)
+                    }
+                }
+            }
+            
+            NavigationLink(
+                destination: NutritionLabelScannerView(selectedAllergens: $selectedAllergens),
+                isActive: $navigateToScanner
+            ) { EmptyView() }
+            
+            Button("Continue") {
+                navigateToScanner = true
+            }
+            .font(.system(size: 17, weight: .medium, design: .rounded))
+            .padding()
+            .background(Color.blue)
+            .foregroundColor(.white)
+            .cornerRadius(8)
+        }
+        .padding()
+    }
+}
+
+// MARK: - Login & Profile
+
+struct LoginView: View {
+    @Binding var isLoggedIn: Bool
+    @Binding var firstName: String
+    @Binding var username: String
+    @Binding var password: String
+    
+    var body: some View {
+        VStack {
+            Text("Log In")
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .padding()
+            
+            TextField("Username", text: $username)
+                .padding()
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+            
+            SecureField("Password", text: $password)
+                .padding()
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+            
+            Button("Log In") {
+                isLoggedIn = true
+                firstName = "User"
+            }
+            .font(.system(size: 17, weight: .medium, design: .rounded))
+            .padding()
+            .background(Color.blue)
+            .foregroundColor(.white)
+            .cornerRadius(8)
+        }
+        .padding()
+    }
+}
+
+struct CreateProfileView: View {
+    @Binding var isProfileCreated: Bool
+    @Binding var username: String
+    @Binding var password: String
+    @Binding var firstName: String
+    
+    var body: some View {
+        VStack {
+            Text("Create Profile")
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .padding()
+            
+            TextField("First Name", text: $firstName)
+                .padding()
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+            
+            TextField("Username", text: $username)
+                .padding()
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+            
+            SecureField("Password", text: $password)
+                .padding()
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+            
+            Button("Create Profile") {
+                isProfileCreated = true
+            }
+            .font(.system(size: 17, weight: .medium, design: .rounded))
+            .padding()
+            .background(Color.green)
+            .foregroundColor(.white)
+            .cornerRadius(8)
+        }
+        .padding()
+    }
+}
+
+// MARK: - Main Content
+
+struct ContentView: View {
+    @State private var isLoggedIn = false
+    @State private var firstName = ""
+    @State private var username = ""
+    @State private var password = ""
+    @State private var selectedAllergens: [String] = []
+    @State private var allergens = ["Peanuts", "Gluten", "Dairy", "Eggs", "Soy", "Shellfish"]
+    
+    // NEW: Logout alert state
+    @State private var showLogoutAlert = false
+
+    var body: some View {
+        NavigationView {
+            if isLoggedIn {
+                VStack {
+                    // Top bar with greeting + logout
+                    HStack {
+                        Text("Hello, \(firstName)!")
+                            .font(.system(size: 32, weight: .bold, design: .rounded))
+
+                        Spacer()
+
+                        Button(action: {
+                            showLogoutAlert = true
+                        }) {
+                            Text("Log Out")
+                                .font(.system(size: 15, weight: .medium, design: .rounded))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Color.red)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                        }
+                    }
+                    .padding()
+
+                    NavigationLink(
+                        destination: AllergenSelectionView(
+                            selectedAllergens: $selectedAllergens,
+                            allergens: allergens)
+                    ) {
+                        Text("Pick Your Allergens")
+                            .font(.system(size: 18, weight: .medium, design: .rounded))
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                    .padding()
+
+                    NavigationLink(
+                        destination: NutritionLabelScannerView(
+                            selectedAllergens: $selectedAllergens)
+                    ) {
+                        Text("Start Scanning")
+                            .font(.system(size: 18, weight: .medium, design: .rounded))
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(Color.green)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                    .padding()
+
+                    NavigationLink(destination: ChatbotView()) {
+                        Text("Chat with SAM")
+                            .font(.system(size: 18, weight: .medium, design: .rounded))
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(Color.purple)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                    .padding()
+                }
+                .padding()
+                // ✅ Logout confirmation alert
+                .alert(isPresented: $showLogoutAlert) {
+                    Alert(
+                        title: Text("Log Out"),
+                        message: Text("Are you sure you want to log out?"),
+                        primaryButton: .destructive(Text("Log Out")) {
+                            isLoggedIn = false
+                            firstName = ""
+                            username = ""
+                            password = ""
+                            selectedAllergens.removeAll()
+                        },
+                        secondaryButton: .cancel()
+                    )
+                }
+            } else {
+                VStack {
+                    Text("Welcome to SafeBite")
+                        .font(.system(size: 26, weight: .semibold, design: .rounded))
+                        .padding()
+
+                    HStack {
+                        NavigationLink(
+                            destination: LoginView(
+                                isLoggedIn: $isLoggedIn,
+                                firstName: $firstName,
+                                username: $username,
+                                password: $password)
+                        ) {
+                            Text("Log In")
+                                .font(.system(size: 17, weight: .medium, design: .rounded))
+                                .padding()
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                        }
+
+                        NavigationLink(
+                            destination: CreateProfileView(
+                                isProfileCreated: $isLoggedIn,
+                                username: $username,
+                                password: $password,
+                                firstName: $firstName)
+                        ) {
+                            Text("Create Profile")
+                                .font(.system(size: 17, weight: .medium, design: .rounded))
+                                .padding()
+                                .background(Color.green)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                        }
+                    }
+                }
+                .padding()
+            }
+        }
+    }
+}
+// MARK: - Chatbot
+
+struct ChatbotView: View {
+    @State private var userMessage: String = ""
+    @State private var chatMessages: [ChatMessage] = [
+        ChatMessage(content: "Hi! I'm SAM, SafeBites chatbot. How can I help you today?", isUser: false)
+    ]
+    @State private var isSendingMessage = false
+    
+    var body: some View {
+        VStack {
+            ScrollView {
+                VStack {
+                    ForEach(chatMessages) { message in
+                        HStack {
+                            if message.isUser {
+                                Spacer()
+                                Text(message.content)
+                                    .font(.system(size: 16, design: .rounded))
+                                    .padding()
+                                    .background(Color.blue.opacity(0.2))
+                                    .cornerRadius(12)
+                                    .frame(maxWidth: UIScreen.main.bounds.width * 0.75, alignment: .trailing)
+                            } else {
+                                Text(message.content)
+                                    .font(.system(size: 16, design: .rounded))
+                                    .padding()
+                                    .background(Color.green.opacity(0.2))
+                                    .cornerRadius(12)
+                                    .frame(maxWidth: UIScreen.main.bounds.width * 0.75, alignment: .leading)
+                                Spacer()
+                            }
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+            .padding()
+            
+            HStack {
+                TextField("Ask a question...", text: $userMessage)
+                    .padding()
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                
+                if isSendingMessage {
+                    ProgressView()
+                        .padding(.trailing)
+                } else {
+                    Button("Send") {
+                        sendMessage()
+                    }
+                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+                    .padding(.trailing)
+                }
+            }
+        }
+        .navigationTitle("Meet our chatbot SAM!")
+    }
+    
+    func sendMessage() {
+        guard !userMessage.isEmpty else { return }
+        chatMessages.append(ChatMessage(content: userMessage, isUser: true))
+        isSendingMessage = true
+        let question = userMessage
+        userMessage = ""
+        
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
+            let response = generateChatbotResponse(for: question)
+            DispatchQueue.main.async {
+                chatMessages.append(ChatMessage(content: response, isUser: false))
+                isSendingMessage = false
+            }
+        }
+    }
+    
+    func generateChatbotResponse(for question: String) -> String {
+        let q = question.lowercased()
+        if q.contains("allergen") {
+            return "You can select allergens by tapping 'Pick Your Allergens' on the main screen."
+        } else if q.contains("scan") {
+            return "To scan a product, tap 'Start Scanning' on the main screen."
+        } else if q.contains("911") {
+            return "Tap the Call 911 button after scanning if allergens are detected."
+        } else if q.contains("hello") || q.contains("hi") || q.contains("hey") {
+            return "Hello! How can I help you today?"
+        } else if q.contains("bye") {
+            return "Goodbye! Have a great day!"
+        } else if q.contains("hospital") {
+            return "Use the 'Locate Nearest Hospital' button after scanning your item."
+        } else if q.contains("thank") {
+            return "You're welcome! I'm here if you need anything else."
+        } else {
+            return "I'm here to help! Could you tell me a bit more?"
+        }
+    }
+}
+
+struct ChatMessage: Identifiable {
+    let id = UUID()
+    let content: String
+    let isUser: Bool
+}
