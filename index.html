@@ -1,188 +1,303 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SafeBite</title>
-
-<style>
-body {
-  font-family: -apple-system, sans-serif;
-  background: #f4f6fb;
-  margin: 0;
-  padding: 20px;
-  text-align: center;
-}
-
-.card {
-  background: white;
-  padding: 20px;
-  border-radius: 20px;
-  margin: 15px auto;
-  max-width: 500px;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.08);
-}
-
-button {
-  padding: 12px 18px;
-  border-radius: 12px;
-  border: none;
-  font-weight: 600;
-  margin: 5px;
-}
-
-.blue { background: #2f6fed; color: white; }
-.red { background: #dc2626; color: white; }
-.green { background: #16a34a; color: white; }
-
-.hidden { display: none; }
-
-.alert { padding: 10px; margin-top: 10px; border-radius: 10px; }
-.safe { background: #dcfce7; }
-.danger { background: #fee2e2; }
-
-.chat { max-height: 200px; overflow-y: auto; text-align: left; }
-.msg { margin: 5px 0; }
-.user { text-align: right; }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SafeBite</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f4f6fb;
+      margin: 0;
+      padding: 20px;
+      text-align: center;
+      color: #162033;
+    }
+    .card {
+      background: white;
+      padding: 20px;
+      border-radius: 20px;
+      margin: 15px auto;
+      max-width: 560px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+    }
+    button {
+      padding: 12px 18px;
+      border-radius: 12px;
+      border: none;
+      font-weight: 600;
+      margin: 5px;
+      cursor: pointer;
+    }
+    .blue { background: #2f6fed; color: white; }
+    .red { background: #dc2626; color: white; }
+    .green { background: #16a34a; color: white; }
+    .light { background: #eef3fb; color: #162033; }
+    .hidden { display: none; }
+    .alert {
+      padding: 12px;
+      margin-top: 12px;
+      border-radius: 12px;
+      font-weight: 600;
+    }
+    .safe { background: #dcfce7; color: #166534; }
+    .danger { background: #fee2e2; color: #991b1b; }
+    .chat {
+      max-height: 220px;
+      overflow-y: auto;
+      text-align: left;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 10px;
+      background: #fafcff;
+      margin-bottom: 10px;
+    }
+    .msg { margin: 6px 0; }
+    .user { text-align: right; }
+    video {
+      width: 100%;
+      max-width: 420px;
+      border-radius: 16px;
+      background: #111827;
+    }
+    input[type="text"] {
+      width: calc(100% - 24px);
+      max-width: 420px;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid #d1d5db;
+      font-size: 16px;
+      margin: 8px 0;
+    }
+    .status {
+      color: #667085;
+      margin-top: 10px;
+      min-height: 24px;
+    }
+  </style>
 </head>
-
 <body>
 
-<h1>SafeBite</h1>
+  <h1>SafeBite</h1>
 
-<div id="login" class="card">
-  <button class="blue" onclick="startApp()">Start App</button>
-</div>
-
-<div id="app" class="hidden">
-
-  <div class="card">
-    <h3>Select Allergens</h3>
-    <label><input type="checkbox" value="peanuts"> Peanuts</label><br>
-    <label><input type="checkbox" value="gluten"> Gluten</label><br>
-    <label><input type="checkbox" value="dairy"> Dairy</label><br>
-    <label><input type="checkbox" value="soy"> Soy</label><br>
-    <label><input type="checkbox" value="eggs"> Eggs</label><br>
+  <div id="login" class="card">
+    <p>Start your allergy scanner app.</p>
+    <button class="blue" onclick="startApp()">Start App</button>
   </div>
 
-  <div class="card">
-    <h3>Scanner</h3>
-    <div id="reader"></div>
-    <button class="blue" onclick="startScanner()">Start Scan</button>
-    <button onclick="reset()">Reset</button>
+  <div id="app" class="hidden">
 
-    <p id="product"></p>
-    <p id="ingredients"></p>
-
-    <div id="alert"></div>
-
-    <div id="emergency" class="hidden">
-      <button class="red" onclick="call911()">Call 911</button>
-      <button class="blue" onclick="hospital()">Hospital</button>
+    <div class="card">
+      <h3>Select Allergens</h3>
+      <label><input type="checkbox" value="peanuts"> Peanuts</label><br>
+      <label><input type="checkbox" value="gluten"> Gluten</label><br>
+      <label><input type="checkbox" value="dairy"> Dairy</label><br>
+      <label><input type="checkbox" value="soy"> Soy</label><br>
+      <label><input type="checkbox" value="eggs"> Eggs</label><br>
+      <label><input type="checkbox" value="shellfish"> Shellfish</label><br>
     </div>
+
+    <div class="card">
+      <h3>Scanner</h3>
+
+      <video id="video" muted playsinline></video>
+      <div class="status" id="status">Waiting to start scanner...</div>
+
+      <div>
+        <button class="blue" onclick="startScanner()">Start Scan</button>
+        <button class="light" onclick="stopScanner()">Stop Scan</button>
+        <button class="light" onclick="resetResult()">Reset</button>
+      </div>
+
+      <p style="margin-top:16px;"><strong>Fallback:</strong> paste a barcode manually</p>
+      <input id="manualBarcode" type="text" placeholder="Enter barcode number" />
+      <br>
+      <button class="green" onclick="lookupManualBarcode()">Lookup Barcode</button>
+
+      <p id="product"></p>
+      <p id="ingredients"></p>
+
+      <div id="alert"></div>
+
+      <div id="emergency" class="hidden">
+        <button class="red" onclick="call911()">Call 911</button>
+        <button class="blue" onclick="hospital()">Hospital</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Chat</h3>
+      <div id="chat" class="chat"></div>
+      <input id="input" type="text" placeholder="Ask..." />
+      <button class="blue" onclick="send()">Send</button>
+    </div>
+
   </div>
 
-  <div class="card">
-    <h3>Chat</h3>
-    <div id="chat" class="chat"></div>
-    <input id="input" placeholder="Ask..." />
-    <button onclick="send()">Send</button>
-  </div>
+  <script type="module">
+    import { BrowserMultiFormatReader, NotFoundException } from 'https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/+esm';
 
-</div>
+    let codeReader = null;
+    let controls = null;
+    let allergens = [];
 
-<script src="https://cdn.jsdelivr.net/npm/html5-qrcode"></script>
-
-<script>
-let scanner;
-let allergens = [];
-
-function startApp(){
-  document.getElementById("login").classList.add("hidden");
-  document.getElementById("app").classList.remove("hidden");
-}
-
-document.querySelectorAll("input[type=checkbox]").forEach(cb=>{
-  cb.addEventListener("change", ()=>{
-    allergens = Array.from(document.querySelectorAll("input:checked")).map(e=>e.value);
-  });
-});
-
-async function startScanner(){
-  scanner = new Html5Qrcode("reader");
-  const cams = await Html5Qrcode.getCameras();
-  const cam = cams[0].id;
-
-  scanner.start(cam,{fps:10,qrbox:250}, async (code)=>{
-    stopScanner();
-
-    const res = await fetch("https://world.openfoodfacts.org/api/v0/product/"+code+".json");
-    const data = await res.json();
-
-    const name = data.product.product_name || "Unknown Product";
-    const ing = (data.product.ingredients_text || "").toLowerCase();
-
-    document.getElementById("product").innerText = "Product: " + name;
-    document.getElementById("ingredients").innerText = "Ingredients: " + ing;
-
-    let found = allergens.filter(a=>ing.includes(a));
-
-    const alertBox = document.getElementById("alert");
-    const emergency = document.getElementById("emergency");
-
-    if(found.length){
-      alertBox.className = "alert danger";
-      alertBox.innerText = "⚠️ Contains: " + found.join(", ");
-      emergency.classList.remove("hidden");
-    } else {
-      alertBox.className = "alert safe";
-      alertBox.innerText = "✅ Safe to eat";
-      emergency.classList.add("hidden");
+    function updateAllergens() {
+      allergens = Array.from(document.querySelectorAll('input[type=checkbox]:checked')).map(e => e.value.toLowerCase());
     }
-  });
-}
 
-async function stopScanner(){
-  if(scanner){
-    await scanner.stop();
-    await scanner.clear();
-  }
-}
+    document.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      cb.addEventListener('change', updateAllergens);
+    });
 
-function reset(){
-  document.getElementById("product").innerText = "";
-  document.getElementById("ingredients").innerText = "";
-  document.getElementById("alert").innerText = "";
-}
+    window.startApp = function() {
+      document.getElementById("login").classList.add("hidden");
+      document.getElementById("app").classList.remove("hidden");
+    };
 
-function call911(){
-  window.location.href = "tel:911";
-}
+    function setStatus(msg) {
+      document.getElementById("status").innerText = msg;
+    }
 
-function hospital(){
-  window.open("https://maps.apple.com/?q=hospital");
-}
+    async function fetchProduct(barcode) {
+      const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${encodeURIComponent(barcode)}.json`);
+      if (!res.ok) throw new Error("Product lookup failed.");
+      const data = await res.json();
+      const product = data.product || {};
+      return {
+        name: product.product_name || "Unknown Product",
+        ingredients: product.ingredients_text || "No ingredients listed"
+      };
+    }
 
-function send(){
-  const input = document.getElementById("input");
-  const chat = document.getElementById("chat");
+    function renderProduct(name, ingredients) {
+      document.getElementById("product").innerText = "Product: " + name;
+      document.getElementById("ingredients").innerText = "Ingredients: " + ingredients;
 
-  const text = input.value;
-  if(!text) return;
+      const ingLower = ingredients.toLowerCase();
+      const found = allergens.filter(a => ingLower.includes(a));
 
-  chat.innerHTML += `<div class="msg user">${text}</div>`;
+      const alertBox = document.getElementById("alert");
+      const emergency = document.getElementById("emergency");
 
-  let reply = "I can help with allergens, scanning, or emergencies.";
+      if (found.length) {
+        alertBox.className = "alert danger";
+        alertBox.innerText = "Contains: " + found.join(", ");
+        emergency.classList.remove("hidden");
+      } else {
+        alertBox.className = "alert safe";
+        alertBox.innerText = "No selected allergens found.";
+        emergency.classList.add("hidden");
+      }
+    }
 
-  if(text.includes("scan")) reply = "Press Start Scan.";
-  if(text.includes("allergy")) reply = "Select allergens first.";
-  if(text.includes("911")) reply = "Use emergency button.";
+    async function handleBarcode(barcode) {
+      setStatus("Barcode found. Looking up product...");
+      await stopScanner();
+      try {
+        const result = await fetchProduct(barcode);
+        renderProduct(result.name, result.ingredients);
+        setStatus("Scan complete.");
+      } catch (e) {
+        setStatus("Scanned, but lookup failed.");
+        alert(e.message);
+      }
+    }
 
-  chat.innerHTML += `<div class="msg">${reply}</div>`;
-  input.value = "";
-}
-</script>
+    window.startScanner = async function() {
+      setStatus("Requesting camera...");
+      try {
+        codeReader = new BrowserMultiFormatReader();
 
+        const videoInputDevices = await BrowserMultiFormatReader.listVideoInputDevices();
+        if (!videoInputDevices.length) throw new Error("No camera found.");
+
+        const backCam =
+          videoInputDevices.find(d => /back|rear|environment/i.test(d.label)) ||
+          videoInputDevices[0];
+
+        controls = await codeReader.decodeFromVideoDevice(
+          backCam.deviceId,
+          "video",
+          (result, err) => {
+            if (result) {
+              handleBarcode(result.getText());
+            }
+            if (err && !(err instanceof NotFoundException)) {
+              console.error(err);
+            }
+          }
+        );
+
+        setStatus("Point the camera at a barcode.");
+      } catch (e) {
+        console.error(e);
+        setStatus("Scanner could not start. Use manual barcode entry below.");
+      }
+    };
+
+    window.stopScanner = async function() {
+      try {
+        if (controls) {
+          controls.stop();
+          controls = null;
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      setStatus("Scanner stopped.");
+    };
+
+    window.resetResult = function() {
+      document.getElementById("product").innerText = "";
+      document.getElementById("ingredients").innerText = "";
+      document.getElementById("alert").innerText = "";
+      document.getElementById("alert").className = "";
+      document.getElementById("emergency").classList.add("hidden");
+      setStatus("Waiting to start scanner...");
+    };
+
+    window.lookupManualBarcode = async function() {
+      const code = document.getElementById("manualBarcode").value.trim();
+      if (!code) return;
+      setStatus("Looking up barcode...");
+      try {
+        const result = await fetchProduct(code);
+        renderProduct(result.name, result.ingredients);
+        setStatus("Lookup complete.");
+      } catch (e) {
+        setStatus("Lookup failed.");
+        alert(e.message);
+      }
+    };
+
+    window.call911 = function() {
+      window.location.href = "tel:911";
+    };
+
+    window.hospital = function() {
+      window.open("https://maps.apple.com/?q=hospital", "_blank");
+    };
+
+    window.send = function() {
+      const input = document.getElementById("input");
+      const chat = document.getElementById("chat");
+      const text = input.value.trim();
+      if (!text) return;
+
+      chat.innerHTML += `<div class="msg user">${text}</div>`;
+
+      let reply = "I can help with allergens, scanning, or emergencies.";
+      const lower = text.toLowerCase();
+
+      if (lower.includes("scan")) reply = "Tap Start Scan, or paste the barcode manually if the camera has trouble.";
+      else if (lower.includes("allergy") || lower.includes("allergen")) reply = "Select your allergens first, then scan the product.";
+      else if (lower.includes("911")) reply = "Use the Call 911 button in an emergency.";
+      else if (lower.includes("hospital")) reply = "Tap Hospital to open nearby hospitals in Maps.";
+
+      chat.innerHTML += `<div class="msg">${reply}</div>`;
+      input.value = "";
+      chat.scrollTop = chat.scrollHeight;
+    };
+  </script>
 </body>
 </html>
